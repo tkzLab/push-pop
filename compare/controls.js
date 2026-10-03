@@ -1,8 +1,9 @@
 const DEFAULTS = Object.freeze({ variant: 'current', row: 0, side: 1 });
 const VARIANTS = [
   { value: 'current', label: '現状' },
-  { value: 'cool', label: '青みの白' },
-  { value: 'fall', label: '白＋降る光' }
+  { value: 'spread', label: '中心から広がる' },
+  { value: 'rimfall', label: '縁へ降る' },
+  { value: 'pulse', label: 'ゆっくり明滅' }
 ];
 const ROWS = ['ピンク', 'オレンジ', '黄色', 'ミント'];
 
@@ -16,7 +17,7 @@ function createPanel(api) {
   panel.innerHTML = `
     <div class="compare-panel__heading">
       <h2 id="compare-title">ひかりの見え方をくらべる</h2>
-      <p>点灯後も場所を見つけやすいか、4色で比べてください。</p>
+      <p>色はすべて同じ白。明滅は約2秒周期です。4色で見つけやすさを比べてください。</p>
     </div>
     <div class="compare-panel__controls">
       <fieldset class="compare-panel__group compare-panel__variants">

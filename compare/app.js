@@ -10,11 +10,34 @@ const palette = ['#d987a9', '#eda875', '#e1c878', '#83bba9'];
 const rimLightColor = new THREE.Color('#fff2bb');
 const rimLightIntensity = .45;
 let comparisonVariant = 'current';
-const coolLightColor = new THREE.Color('#d4eaff');
-const fallingLight = document.createElement('div');
+let pulseStart = 0, pulseLevel = 1;
+const svgNS = 'http://www.w3.org/2000/svg';
+const fallingLight = document.createElementNS(svgNS, 'svg');
 fallingLight.setAttribute('aria-hidden', 'true');
-fallingLight.style.cssText = 'position:absolute;pointer-events:none;display:none;border-radius:50%;background:linear-gradient(to bottom,transparent 0%,rgba(125,175,255,.12) 20%,rgba(168,212,255,.55) 65%,rgba(244,252,255,.95) 93%,transparent 100%);mask-image:linear-gradient(to right,transparent,black 42%,black 58%,transparent);filter:blur(1px);transform:translate(-50%,-100%);z-index:1';
+fallingLight.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;display:none;z-index:1;overflow:visible';
+fallingLight.innerHTML = '<defs><linearGradient id="rim-rain" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff2bb" stop-opacity="0"/><stop offset=".72" stop-color="#fff2bb" stop-opacity=".5"/><stop offset="1" stop-color="#fffcef" stop-opacity="1"/></linearGradient></defs>';
+const rainLines = Array.from({length:16}, () => {
+  const line = document.createElementNS(svgNS,'line');
+  line.setAttribute('stroke','url(#rim-rain)'); line.setAttribute('stroke-linecap','round');
+  fallingLight.append(line); return line;
+});
 stage.append(fallingLight);
+function drawRimRain(cell, progress) {
+  const rect = canvas.getBoundingClientRect(), point = screenPoint(cell);
+  const diameter = Math.abs(screenPoint({x:cell.x + .968,y:cell.y}).x - point.x);
+  const length = diameter * .33;
+  fallingLight.style.display = 'block';
+  fallingLight.style.opacity = String(Math.sin(Math.PI * progress));
+  for (let i=0;i<rainLines.length;i++) {
+    const angle=i/rainLines.length*Math.PI*2;
+    const end=screenPoint({x:cell.x + .484*Math.cos(angle),y:cell.y + .484*Math.sin(angle)});
+    const y=end.y-rect.top-length*.65*(1-progress);
+    const line=rainLines[i];
+    line.setAttribute('x1',end.x-rect.left);line.setAttribute('x2',end.x-rect.left+.01);
+    line.setAttribute('y1',y-length);line.setAttribute('y2',y);
+    line.setAttribute('stroke-width',Math.max(1.2,diameter*.025));
+  }
+}
 let rimGlowTexture;
 function roundedRimGlow() {
   if (rimGlowTexture) return rimGlowTexture;
@@ -129,14 +152,14 @@ function chooseChaseTarget() {
   chase.target = remaining.length ? remaining[Math.floor(Math.random() * remaining.length)] : null;
   // A short arrival glow makes the new destination feel placed, not merely switched.
   chase.reveal = chase.target === null ? null : { index: chase.target, start: performance.now() };
+  pulseStart = performance.now() + 900;
 }
 function lightRim(cell, progress) {
   // Keep lighting-dependent shading visible on the torus instead of clipping it to solid white.
   const material = cell.indicator.material;
-  const cool = comparisonVariant !== 'current';
-  material.color.copy(cell.mesh.material.color).lerp(cool ? coolLightColor : rimLightColor, progress * (cool ? .95 : .65));
-  material.emissive.set(cool ? '#499fff' : '#ffe46b');
-  material.emissiveIntensity = .02 + ((cool ? .65 : rimLightIntensity) - .02) * progress;
+  material.color.copy(cell.mesh.material.color).lerp(rimLightColor, progress * .65);
+  material.emissive.set('#ffe46b');
+  material.emissiveIntensity = .02 + (rimLightIntensity - .02) * progress;
 }
 function chaseReadyToFlip() {
   return mode !== 'chase' || chase.progress === 24;
@@ -169,6 +192,13 @@ function buildToy() {
       bodyShape.holes.push(hole);
       const index = row * cols + col;
       const material = silicone(palette[mode === 'sample' ? index : row]);
+      const wave = { radius:{value:0}, strength:{value:0} };
+      material.onBeforeCompile = shader => {
+        shader.uniforms.waveRadius = wave.radius; shader.uniforms.waveStrength = wave.strength;
+        shader.vertexShader = 'varying vec2 popSurface;\n' + shader.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\npopSurface = position.xy;');
+        shader.fragmentShader = 'varying vec2 popSurface; uniform float waveRadius; uniform float waveStrength;\n' + shader.fragmentShader.replace('#include <emissivemap_fragment>','#include <emissivemap_fragment>\nfloat wave = exp(-pow((length(popSurface)-waveRadius)/0.065,2.0))*waveStrength;\ntotalEmissiveRadiance += vec3(1.0,0.82,0.48)*wave;');
+      };
+      material.customProgramCacheKey = () => 'pop-spread-v1';
       const membrane = new THREE.Mesh(membraneGeometry(), material);
       // Lighting still shades the curved surface; avoid self-shadow artifacts on the reverse face.
       membrane.position.set(x, y, 0); membrane.castShadow = true; membrane.receiveShadow = false;
@@ -192,7 +222,7 @@ function buildToy() {
       const halo = new THREE.Mesh(new THREE.PlaneGeometry(1.64, 1.64), new THREE.MeshBasicMaterial({ map: diffuseHaloTexture(), color: '#fff0a8', transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
       halo.position.set(x, y, .205 * state.side); halo.visible = false;
       toy.add(halo);
-      const cell = { index, x, y, mesh: membrane, target, rims, indicator, halo, sign: state.signs[index], height: .43 * state.signs[index], velocity: 0, pressing: null };
+      const cell = { index, x, y, wave, mesh: membrane, target, rims, indicator, halo, sign: state.signs[index], height: .43 * state.signs[index], velocity: 0, pressing: null };
       cells.push(cell); updateMembrane(cell);
     }
   }
@@ -276,8 +306,9 @@ function updateStatus() {
       if (target) {
         lightRim(c, revealing ? 0 : 1);
       }
-      c.halo.visible = revealing;
-      c.halo.material.color.set(comparisonVariant === 'current' ? '#fff0a8' : '#a2ceff');
+      c.wave.strength.value = 0;
+      c.halo.visible = revealing && ['current','pulse'].includes(comparisonVariant);
+      c.halo.material.color.set('#fff0a8');
       c.halo.position.z = .205 * state.side;
       c.halo.scale.setScalar(revealing ? 1.22 : 1);
       c.halo.material.opacity = revealing ? .68 : 0;
@@ -449,29 +480,31 @@ function animate(now) {
       const progress = Math.max(0, Math.min(1, elapsed / 900));
       // Keep the early phase deliberately weak, then let the rim settle into its full brightness.
       const eased = progress * progress * (3 - 2 * progress);
-      cell.halo.visible = true;
+      cell.halo.visible = ['current','pulse'].includes(comparisonVariant);
       cell.halo.scale.setScalar(1.22 - .22 * eased);
       cell.halo.material.opacity = .68 * Math.pow(1 - eased, 1.15);
-      lightRim(cell, eased);
-      if (comparisonVariant === 'fall') {
-        const point = screenPoint(cell), rect = canvas.getBoundingClientRect();
-        const neighbor = screenPoint({x:cell.x + .968,y:cell.y});
-        const diameter = Math.abs(neighbor.x - point.x);
-        fallingLight.style.display = 'block';
-        fallingLight.style.width = `${diameter * .45}px`;
-        fallingLight.style.height = `${diameter * .8}px`;
-        fallingLight.style.left = `${point.x - rect.left}px`;
-        fallingLight.style.top = `${point.y - rect.top - diameter * (.30 + .18 * (1-eased))}px`;
-        fallingLight.style.opacity = String(Math.sin(Math.PI * progress) * .95);
+      let rimProgress = eased;
+      if (comparisonVariant === 'spread') {
+        cell.wave.radius.value = .47 * Math.min(1,progress/.8);
+        cell.wave.strength.value = .9 * Math.sin(Math.PI * progress);
+        const arrival = Math.max(0,(progress-.45)/.55);
+        rimProgress = arrival * arrival * (3-2*arrival);
       }
+      lightRim(cell, rimProgress);
+      if (comparisonVariant === 'rimfall') drawRimRain(cell, progress);
       dirty = true; moving = true;
     } else if (cell) {
-      cell.halo.visible = false; cell.halo.material.opacity = 0;
+      cell.halo.visible = false; cell.halo.material.opacity = 0; cell.wave.strength.value = 0; cell.wave.radius.value = 0;
       lightRim(cell, 1);
       chase.reveal = null; dirty = true;
     }
   }
-  if (!chase.reveal || comparisonVariant !== 'fall' || reducedMotion.matches || mode !== 'chase') fallingLight.style.display = 'none';
+  if (!chase.reveal || comparisonVariant !== 'rimfall' || reducedMotion.matches || mode !== 'chase') fallingLight.style.display = 'none';
+  if (mode === 'chase' && comparisonVariant === 'pulse' && chase.target !== null && !chase.reveal && !flipAnimation) {
+    pulseLevel = reducedMotion.matches ? 1 : .7 + .3 * Math.cos((now-pulseStart)/2000*Math.PI*2);
+    lightRim(cells[chase.target], pulseLevel);
+    if (!reducedMotion.matches) { dirty = true; moving = true; }
+  }
   if (flipAnimation) {
     const f = flipAnimation, t = Math.min(1, (now - f.start) / f.duration), eased = t * t * (3 - 2 * t);
     toy.rotation.y = f.from + (f.to - f.from) * eased;
@@ -533,22 +566,23 @@ window.addEventListener('pageshow', event => { if (event.persisted) location.rel
 // Local-only comparison controls. Each selection resets the same column for a fair comparison.
 window.__lightCompare = Object.freeze({
   set({variant = 'current',row = 0,side = 1} = {}) {
-    if (!['current','cool','fall'].includes(variant) || !Number.isInteger(row) || row < 0 || row > 3 || ![1,-1].includes(side)) return;
+    if (!['current','spread','rimfall','pulse'].includes(variant) || !Number.isInteger(row) || row < 0 || row > 3 || ![1,-1].includes(side)) return;
     cancelInputs(); flipAnimation = null; mode = 'chase'; comparisonVariant = variant;
     modes.chase.side = side; chaseSigns.fill(side); chase.progress = 0; chase.completedFaces = 0;
     chase.target = row * 6 + 2; chase.reveal = {index:chase.target,start:performance.now()};
+    pulseStart = performance.now()+900; pulseLevel = 1;
     fallingLight.style.display = 'none'; buildToy();
   },
   replay() {
     if (chase.target === null) return;
-    chase.reveal = {index:chase.target,start:performance.now()}; updateStatus(); dirty = true;
+    chase.reveal = {index:chase.target,start:performance.now()}; pulseStart=performance.now()+900; updateStatus(); dirty = true;
   },
   snapshot() {
     const cell = cells[chase.target];
     return {variant:comparisonVariant,target:chase.target,side:modes.chase.side,progress:chase.progress,
       revealing:Boolean(chase.reveal),intensity:cell?.indicator.material.emissiveIntensity,
       rimColor:cell?.indicator.material.color.getHexString(),beamVisible:fallingLight.style.display!=='none',
-      beamOpacity:Number(fallingLight.style.opacity),height:cell?.height};
+      waveRadius:cell?.wave.radius.value,waveStrength:cell?.wave.strength.value,pulseLevel,height:cell?.height};
   }
 });
 window.__lightCompare.set();
