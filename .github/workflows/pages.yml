@@ -27,6 +27,8 @@ jobs:
           mkdir -p _site/vendor
           cp index.html style.css app.js audio.js _site/
           cp vendor/three.module.min.js vendor/three.core.min.js vendor/three-LICENSE.txt _site/vendor/
+          mkdir -p _site/compare
+          cp compare/index.html compare/app.js compare/controls.js compare/controls.css _site/compare/
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

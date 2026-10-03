@@ -1,0 +1,202 @@
+.compare-panel {
+  margin: 0 0 18px;
+  padding: 20px 22px 18px;
+  color: #514966;
+  background: #e7e1f0;
+  border: 1px solid #d9d0e6;
+  border-radius: 24px;
+  box-shadow: inset 0 1px 0 #f9f7fc;
+}
+
+.compare-panel__heading h2 {
+  margin: 0;
+  color: #594b70;
+  font-size: 17px;
+  letter-spacing: .06em;
+}
+
+.compare-panel__heading p {
+  margin: 7px 0 16px;
+  color: #776f86;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.compare-panel__controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.compare-panel__group {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.compare-panel__group legend {
+  margin-bottom: 6px;
+  color: #81768f;
+  font-size: 11px;
+  letter-spacing: .08em;
+}
+
+.compare-panel__select {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #81768f;
+  font-size: 11px;
+  letter-spacing: .08em;
+}
+
+.compare-panel__select select {
+  min-height: 44px;
+  min-width: 98px;
+  padding: 8px 28px 8px 11px;
+  color: #665b79;
+  font: inherit;
+  font-size: 12px;
+  background: #f3f0f8;
+  border: 1px solid #d3c9e0;
+  border-radius: 13px;
+}
+
+.compare-panel__variant-list,
+.compare-panel__row-list,
+.compare-panel__side-list {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.compare-panel button {
+  min-height: 44px;
+  padding: 9px 13px;
+  color: #665b79;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.25;
+  white-space: nowrap;
+  background: #f3f0f8;
+  border: 1px solid #d3c9e0;
+  border-radius: 13px;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.compare-panel button[aria-pressed="true"] {
+  color: #4f4169;
+  background: #cfc1df;
+  border-color: #a993c0;
+  box-shadow: inset 0 1px 0 #ebe4f2;
+}
+
+.compare-panel__replay {
+  margin-left: auto;
+  color: #58456d !important;
+  background: #fcfbfe !important;
+  border-color: #fff !important;
+  box-shadow: 0 3px 0 #c4b5d2;
+}
+
+.compare-panel__replay:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 #c4b5d2;
+}
+
+.compare-panel__replay-short {
+  display: none;
+}
+
+.compare-panel button:focus-visible {
+  outline: 3px solid #8063aa;
+  outline-offset: 3px;
+}
+
+/* The comparison page always runs the light-following game mode. */
+.compare-panel ~ .play-area .mode-switch {
+  display: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .compare-panel button:not([aria-pressed="true"]):hover {
+    background: #e9e2f1;
+    border-color: #b9a9cd;
+  }
+}
+
+@media (max-width: 650px) {
+  .app:has(.compare-panel) > .topbar {
+    display: none;
+  }
+
+  .compare-panel {
+    margin-bottom: 10px;
+    padding: 13px 12px 12px;
+    border-radius: 20px;
+  }
+
+  .compare-panel__heading h2 {
+    font-size: 15px;
+  }
+
+  .compare-panel__heading p {
+    margin: 4px 0 10px;
+    font-size: 11px;
+  }
+
+  .compare-panel__controls {
+    display: grid;
+    grid-template-columns: 1fr .9fr .9fr;
+    align-items: start;
+    gap: 13px 10px;
+  }
+
+  .compare-panel__variants {
+    grid-column: 1 / -1;
+  }
+
+  .compare-panel__variant-list button {
+    flex: 1 1 auto;
+  }
+
+  .compare-panel__select select,
+  .compare-panel__replay {
+    min-height: 44px;
+  }
+
+  .compare-panel__select { min-width: 0; }
+  .compare-panel__select select {
+    width: 100%; min-width: 0; padding: 8px 2px 8px 5px;
+    letter-spacing: 0;
+  }
+
+  .compare-panel__replay {
+    margin: 18px 0 0;
+  }
+
+  .compare-panel__replay-long {
+    display: none;
+  }
+
+  .compare-panel__replay-short {
+    display: inline;
+  }
+}
+
+@media (max-width: 360px) {
+  .compare-panel__variant-list,
+  .compare-panel__row-list,
+  .compare-panel__side-list {
+    gap: 4px;
+  }
+
+  .compare-panel button {
+    padding-inline: 9px;
+    font-size: 11px;
+  }
+}
