@@ -160,6 +160,16 @@ function startRhythmRound() {
   rhythm.cueStart = performance.now();
 }
 function replayRhythmRound() {
+  // A phrase is all-or-nothing: return its partial correct presses before showing it again.
+  const side = modes.rhythm.side;
+  for (const index of rhythm.sequence.slice(0, rhythm.step)) {
+    const cell = cells[index];
+    if (!cell || cell.sign === side) continue;
+    cell.sign = side;
+    rhythmSigns[index] = side;
+    cell.velocity = side * 9;
+  }
+  rhythm.progress = Math.max(0, rhythm.progress - rhythm.step);
   rhythm.phase = 'waiting-replay';
   rhythm.step = 0;
   rhythm.current = null;
@@ -331,7 +341,7 @@ function updateStatus() {
     $('face-label').textContent = state.side === 1 ? 'おもて' : 'うら';
     const count = rhythm.sequence.length;
     const isComplete = rhythm.progress === 24;
-    $('hint').textContent = isComplete ? 'リズムできた！' : rhythm.phase === 'showing' ? `よく みてね。${count}こ` : rhythm.phase === 'waiting-replay' ? 'もういちど、みてみよう。' : 'じゅんばんに おしてね。';
+    $('hint').textContent = isComplete ? 'リズムできた！' : rhythm.phase === 'showing' ? `よく みてね。${count}こ` : rhythm.phase === 'waiting-replay' ? 'もういちど、みてみよう。' : rhythm.phase === 'waiting-next' ? 'できた！ つぎも みてね。' : 'じゅんばんに おしてね。';
     $('status').textContent = isComplete
       ? `${rhythm.completedFaces}まい できた！ うらがえして、つづけよう。`
       : `${rhythm.progress} / 24こ${rhythm.completedFaces ? ` · ${rhythm.completedFaces}まい できた！` : ''}`;
@@ -399,7 +409,9 @@ function snap(cell) {
       if (rhythm.progress === 24) {
         rhythm.completedFaces += 1; rhythm.phase = 'complete'; rhythm.current = null;
       } else {
-        rhythm.round += 1; startRhythmRound();
+        rhythm.round += 1;
+        rhythm.phase = 'waiting-next'; rhythm.current = null;
+        rhythm.cueStart = performance.now() + 800;
       }
     }
   }
@@ -555,8 +567,9 @@ function animate(now) {
     }
     dirty = true; moving = true;
   }
-  if (mode === 'rhythm' && rhythm.phase === 'waiting-replay' && now >= rhythm.cueStart) {
-    rhythm.phase = 'showing'; rhythm.current = rhythm.sequence[0] ?? null; rhythm.cueStart = now;
+  if (mode === 'rhythm' && (rhythm.phase === 'waiting-replay' || rhythm.phase === 'waiting-next') && now >= rhythm.cueStart) {
+    if (rhythm.phase === 'waiting-next') startRhythmRound();
+    else { rhythm.phase = 'showing'; rhythm.current = rhythm.sequence[0] ?? null; rhythm.cueStart = now; }
     updateStatus(); dirty = true;
   }
   if (mode === 'rhythm' && rhythm.phase === 'showing' && !flipAnimation) {
