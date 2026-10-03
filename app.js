@@ -5,7 +5,7 @@ const $ = (id) => document.getElementById(id);
 const canvas = $('toy'), stage = $('stage'), keys = $('keys');
 const audio = new PopAudio();
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
-const modes = { full: { cols: 6, rows: 4, side: 1 }, sample: { cols: 2, rows: 2, side: 1 }, chase: { cols: 6, rows: 4, side: 1 } };
+const modes = { full: { cols: 6, rows: 4, side: 1 }, sample: { cols: 2, rows: 2, side: 1 }, chase: { cols: 6, rows: 4, side: 1 }, rhythm: { cols: 6, rows: 4, side: 1 } };
 const palette = ['#d987a9', '#eda875', '#e1c878', '#83bba9'];
 const rimLightColor = new THREE.Color('#fff2bb');
 const rimLightIntensity = .45;
@@ -28,7 +28,12 @@ let repeatTargetLight = true;
 const chase = { target: 0, progress: 0, completedFaces: 0, reveal: null, lightStart:0 };
 const chaseSigns = Array(24).fill(1);
 const chaseMode = modes.chase; chaseMode.signs = chaseSigns;
-const initialMode = new URLSearchParams(location.search).get('play') === 'light' ? 'chase' : 'full';
+const rhythmSteps = [2, 3, 4, 5, 6, 4];
+const rhythmSigns = Array(24).fill(1);
+const rhythmMode = modes.rhythm; rhythmMode.signs = rhythmSigns;
+const rhythm = { sequence: [], phase: 'idle', step: 0, round: 0, progress: 0, completedFaces: 0, cueStart: 0, current: null };
+const playParam = new URLSearchParams(location.search).get('play');
+const initialMode = playParam === 'light' ? 'chase' : playParam === 'rhythm' ? 'rhythm' : 'full';
 let mode = initialMode, cells = [], buttons = [], renderer, scene, camera, toy, ground;
 let flipAnimation = null, frame = 0, lastTime = 0, alive = true, focusIndex = 0;
 let stats = { frames: 0, maxFrameMs: 0, recentFrameMs: [] };
@@ -137,6 +142,30 @@ function chooseChaseTarget() {
   // A short arrival glow makes the new destination feel placed, not merely switched.
   startChaseLight();
 }
+function shuffle(items) {
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+function startRhythmRound() {
+  const remaining = rhythmSigns.map((sign, index) => sign === modes.rhythm.side ? index : -1).filter(index => index >= 0);
+  const length = Math.min(rhythmSteps[rhythm.round] || remaining.length, remaining.length);
+  rhythm.sequence = shuffle(remaining).slice(0, length);
+  rhythm.phase = rhythm.sequence.length ? 'showing' : 'complete';
+  rhythm.step = 0;
+  rhythm.current = rhythm.sequence[0] ?? null;
+  rhythm.cueStart = performance.now();
+}
+function replayRhythmRound() {
+  rhythm.phase = 'waiting-replay';
+  rhythm.step = 0;
+  rhythm.current = null;
+  rhythm.cueStart = performance.now() + 520;
+  updateStatus();
+}
 function lightRim(cell, progress) {
   // Keep lighting-dependent shading visible on the torus instead of clipping it to solid white.
   const material = cell.indicator.material;
@@ -144,8 +173,8 @@ function lightRim(cell, progress) {
   material.emissive.set('#ffe46b');
   material.emissiveIntensity = .02 + (rimLightIntensity - .02) * progress;
 }
-function chaseReadyToFlip() {
-  return mode !== 'chase' || chase.progress === 24;
+function gameReadyToFlip() {
+  return (mode !== 'chase' || chase.progress === 24) && (mode !== 'rhythm' || rhythm.progress === 24);
 }
 chooseChaseTarget();
 
@@ -164,6 +193,10 @@ function buildToy() {
   toy = new THREE.Group();
   const state = modes[mode], { cols, rows } = state;
   if (mode === 'chase') state.signs = chaseSigns;
+  if (mode === 'rhythm') {
+    state.signs = rhythmSigns;
+    if (rhythm.phase === 'idle') startRhythmRound();
+  }
   state.signs ||= Array(cols * rows).fill(1);
   const width = cols * 1.14 + .34, height = rows * 1.14 + .34;
   const bodyShape = roundedShape(width, height, .5);
@@ -258,7 +291,9 @@ function buildKeyboard() {
 
 function updateStatus() {
   const state = modes[mode], remaining = cells.filter(c => c.sign === state.side).length;
-  document.querySelector('.play-area').classList.toggle('is-chase', mode === 'chase');
+  const playArea = document.querySelector('.play-area');
+  playArea.classList.toggle('is-chase', mode === 'chase');
+  playArea.classList.toggle('is-rhythm', mode === 'rhythm');
   if (mode === 'chase') {
     $('face-label').textContent = state.side === 1 ? 'おもて' : 'うら';
     $('hint').textContent = chase.progress === 24 ? 'ぜんぶ、できた！' : 'ひかっている ぷちを おそう。';
@@ -289,7 +324,34 @@ function updateStatus() {
       buttons[i].setAttribute('aria-label', `${i + 1}ばんの ぷち。${target ? 'ひかっている。おせます' : 'おせません'}`);
       buttons[i].setAttribute('aria-pressed', String(c.sign !== state.side));
     });
-    $('flip').disabled = !chaseReadyToFlip();
+    $('flip').disabled = !gameReadyToFlip();
+    return;
+  }
+  if (mode === 'rhythm') {
+    $('face-label').textContent = state.side === 1 ? 'おもて' : 'うら';
+    const count = rhythm.sequence.length;
+    const isComplete = rhythm.progress === 24;
+    $('hint').textContent = isComplete ? 'リズムできた！' : rhythm.phase === 'showing' ? `よく みてね。${count}こ` : rhythm.phase === 'waiting-replay' ? 'もういちど、みてみよう。' : 'じゅんばんに おしてね。';
+    $('status').textContent = isComplete
+      ? `${rhythm.completedFaces}まい できた！ うらがえして、つづけよう。`
+      : `${rhythm.progress} / 24こ${rhythm.completedFaces ? ` · ${rhythm.completedFaces}まい できた！` : ''}`;
+    cells.forEach((c, i) => {
+      const lit = rhythm.phase === 'showing' && i === rhythm.current;
+      c.indicator = c.rims[state.side];
+      Object.values(c.rims).forEach(rim => {
+        rim.material.color.copy(c.mesh.material.color);
+        rim.material.emissive.set('#000000'); rim.material.emissiveIntensity = 0;
+      });
+      if (lit) lightRim(c, reducedMotion.matches ? 1 : 0);
+      c.halo.visible = lit && !reducedMotion.matches;
+      c.halo.position.z = .205 * state.side;
+      c.halo.scale.setScalar(lit ? 1.22 : 1);
+      c.halo.material.opacity = lit && !reducedMotion.matches ? .68 : 0;
+      const stateLabel = lit ? 'ひかっている。よくみてね' : rhythm.phase === 'playing' ? 'じゅんばんに おせます' : 'いまは おせません';
+      buttons[i].setAttribute('aria-label', `${i + 1}ばんの ぷち。${stateLabel}`);
+      buttons[i].setAttribute('aria-pressed', String(c.sign !== state.side));
+    });
+    $('flip').disabled = !gameReadyToFlip();
     return;
   }
   $('face-label').textContent = state.side === 1 ? 'おもて' : 'うら';
@@ -311,12 +373,17 @@ function press(index, owner, now) {
   const c = cells[index];
   if (!c || c.sign !== modes[mode].side || c.pressing) return;
   if (mode === 'chase' && index !== chase.target) return;
+  if (mode === 'rhythm') {
+    if (rhythm.phase !== 'playing') return;
+    if (index !== rhythm.sequence[rhythm.step]) { replayRhythmRound(); return; }
+  }
   c.pressing = { owner, start: now }; dirty = true;
 }
 
 function snap(cell) {
   if (!cell.pressing || cell.sign !== modes[mode].side) return;
   if (mode === 'chase' && cell.index !== chase.target) { cell.pressing = null; return; }
+  if (mode === 'rhythm' && (rhythm.phase !== 'playing' || cell.index !== rhythm.sequence[rhythm.step])) { cell.pressing = null; return; }
   cell.sign *= -1; modes[mode].signs[cell.index] = cell.sign;
   cell.pressing = null; cell.velocity = cell.sign * 9;
   audio.pop(cell.index, modes[mode].side);
@@ -324,6 +391,17 @@ function snap(cell) {
     chase.progress += 1;
     if (chase.progress === 24) { chase.completedFaces += 1; chase.target = null; chase.reveal = null; }
     else chooseChaseTarget();
+  }
+  if (mode === 'rhythm') {
+    rhythm.progress += 1;
+    rhythm.step += 1;
+    if (rhythm.step === rhythm.sequence.length) {
+      if (rhythm.progress === 24) {
+        rhythm.completedFaces += 1; rhythm.phase = 'complete'; rhythm.current = null;
+      } else {
+        rhythm.round += 1; startRhythmRound();
+      }
+    }
   }
   updateStatus(); dirty = true;
 }
@@ -382,7 +460,7 @@ window.addEventListener('blur', cancelInputs);
 document.addEventListener('visibilitychange', () => { if (document.hidden) cancelInputs(); lastTime = 0; });
 
 $('flip').addEventListener('click', () => {
-  if (flipAnimation || !renderer || !alive || !chaseReadyToFlip()) return;
+  if (flipAnimation || !renderer || !alive || !gameReadyToFlip()) return;
   cancelInputs();
   flipAnimation = { start: performance.now(), from: toy.rotation.y, to: toy.rotation.y + Math.PI, duration: reducedMotion.matches ? 100 : 720 };
   $('flip').disabled = true; dirty = true;
@@ -394,8 +472,14 @@ document.querySelectorAll('[data-mode]').forEach(button => button.addEventListen
   if (mode === 'chase' && chase.target !== null) {
     startChaseLight();
   }
+  if (mode === 'rhythm' && rhythm.phase !== 'complete') {
+    if (rhythm.phase === 'idle') startRhythmRound();
+    else if (rhythm.phase === 'showing' || rhythm.phase === 'waiting-replay') {
+      rhythm.phase = 'showing'; rhythm.step = 0; rhythm.current = rhythm.sequence[0] ?? null; rhythm.cueStart = performance.now();
+    }
+  }
   document.querySelectorAll('[data-mode]').forEach(b => { const selected = b === button; b.classList.toggle('is-selected', selected); b.setAttribute('aria-pressed', selected); });
-  $('flip').disabled = !chaseReadyToFlip(); buildToy();
+  $('flip').disabled = !gameReadyToFlip(); buildToy();
 }));
 $('mute').addEventListener('click', () => {
   const muted = !audio.diagnostics.muted; audio.setMuted(muted); unlockAudio();
@@ -471,6 +555,38 @@ function animate(now) {
     }
     dirty = true; moving = true;
   }
+  if (mode === 'rhythm' && rhythm.phase === 'waiting-replay' && now >= rhythm.cueStart) {
+    rhythm.phase = 'showing'; rhythm.current = rhythm.sequence[0] ?? null; rhythm.cueStart = now;
+    updateStatus(); dirty = true;
+  }
+  if (mode === 'rhythm' && rhythm.phase === 'showing' && !flipAnimation) {
+    const lightDuration = reducedMotion.matches ? 620 : 800;
+    const gapDuration = 260;
+    const slotDuration = lightDuration + gapDuration;
+    const elapsedCue = Math.max(0, now - rhythm.cueStart);
+    const slot = Math.floor(elapsedCue / slotDuration);
+    if (slot < rhythm.sequence.length) {
+      const current = rhythm.sequence[slot];
+      if (rhythm.current !== current) {
+        rhythm.current = current; updateStatus();
+      }
+      const cell = cells[current];
+      const withinLight = elapsedCue % slotDuration;
+      if (withinLight < lightDuration) {
+        if (reducedMotion.matches) {
+          cell.halo.visible = false; lightRim(cell, 1);
+        } else {
+          gatherLight(cell, Math.max(0, Math.min(1, withinLight / lightDuration)));
+        }
+      } else {
+        cell.halo.visible = false; cell.halo.material.opacity = 0;
+        lightRim(cell, 1);
+      }
+      dirty = true; moving = true;
+    } else {
+      rhythm.phase = 'playing'; rhythm.current = null; updateStatus(); dirty = true;
+    }
+  }
   if (flipAnimation) {
     const f = flipAnimation, t = Math.min(1, (now - f.start) / f.duration), eased = t * t * (3 - 2 * t);
     toy.rotation.y = f.from + (f.to - f.from) * eased;
@@ -486,11 +602,14 @@ function animate(now) {
       if (mode === 'chase') {
         chase.progress = 0; chooseChaseTarget();
       }
+      if (mode === 'rhythm') {
+        rhythm.progress = 0; rhythm.round = 0; rhythm.phase = 'idle'; startRhythmRound();
+      }
       flipAnimation = null; toy.position.z = 0; toy.scale.setScalar(1); ground.visible = true;
       toy.rotation.y = modes[mode].side === 1 ? -.075 : Math.PI - .075;
       cells.forEach(c => c.target.position.z = .2 * modes[mode].side);
-      if (mode === 'chase') buildToy();
-      $('flip').disabled = !chaseReadyToFlip(); updateStatus();
+      if (mode === 'chase' || mode === 'rhythm') buildToy();
+      $('flip').disabled = !gameReadyToFlip(); updateStatus();
     }
   }
   if (dirty || moving) {
@@ -520,7 +639,7 @@ try {
     const selected = button.dataset.mode === mode;
     button.classList.toggle('is-selected', selected); button.setAttribute('aria-pressed', selected);
   });
-  buildToy(); $('loading').hidden = true; $('flip').disabled = !chaseReadyToFlip();
+  buildToy(); $('loading').hidden = true; $('flip').disabled = !gameReadyToFlip();
   if (mode === 'chase' && chase.target !== null) startChaseLight();
   new ResizeObserver(fitCamera).observe(stage);
   frame = requestAnimationFrame(animate);
@@ -561,6 +680,6 @@ if (new URLSearchParams(location.search).has('qa')) {
         rimRadius: c.indicator.geometry.parameters.radius, rimZ: c.indicator.position.z
       })) };
     },
-    snapshot() { return { mode, side: modes[mode].side, flipping: Boolean(flipAnimation), activePointers: pointers.size, bounds: screenBounds(), cells: cells.map(c => ({ index: c.index, sign: c.sign, height: c.height, pressing: Boolean(c.pressing), ...screenPoint(c) })), game: mode === 'chase' ? { target: chase.target, progress: chase.progress, completedFaces: chase.completedFaces, reveal: chase.reveal && { index: chase.reveal.index, start: chase.reveal.start }, revealScale: chase.target !== null ? cells[chase.target]?.indicator.scale.x : 1, revealOpacity: chase.target !== null ? cells[chase.target]?.indicator.material.opacity : 1, revealIntensity: chase.target !== null ? cells[chase.target]?.indicator.material.emissiveIntensity : rimLightIntensity, haloVisible: chase.target !== null ? cells[chase.target]?.halo.visible : false, haloScale: chase.target !== null ? cells[chase.target]?.halo.scale.x : 1, haloOpacity: chase.target !== null ? cells[chase.target]?.halo.material.opacity : 0 } : null, audio: audio.diagnostics, stats: structuredClone(stats), drawCalls: renderer?.info.render.calls, triangles: renderer?.info.render.triangles }; }
+    snapshot() { return { mode, side: modes[mode].side, flipping: Boolean(flipAnimation), activePointers: pointers.size, bounds: screenBounds(), cells: cells.map(c => ({ index: c.index, sign: c.sign, height: c.height, pressing: Boolean(c.pressing), ...screenPoint(c) })), game: mode === 'chase' ? { target: chase.target, progress: chase.progress, completedFaces: chase.completedFaces, reveal: chase.reveal && { index: chase.reveal.index, start: chase.reveal.start }, revealScale: chase.target !== null ? cells[chase.target]?.indicator.scale.x : 1, revealOpacity: chase.target !== null ? cells[chase.target]?.indicator.material.opacity : 1, revealIntensity: chase.target !== null ? cells[chase.target]?.indicator.material.emissiveIntensity : rimLightIntensity, haloVisible: chase.target !== null ? cells[chase.target]?.halo.visible : false, haloScale: chase.target !== null ? cells[chase.target]?.halo.scale.x : 1, haloOpacity: chase.target !== null ? cells[chase.target]?.halo.material.opacity : 0 } : mode === 'rhythm' ? { sequence: [...rhythm.sequence], phase: rhythm.phase, step: rhythm.step, round: rhythm.round, progress: rhythm.progress, completedFaces: rhythm.completedFaces, current: rhythm.current, haloVisible: rhythm.current !== null ? cells[rhythm.current]?.halo.visible : false, rimIntensity: rhythm.current !== null ? cells[rhythm.current]?.indicator.material.emissiveIntensity : 0 } : null, audio: audio.diagnostics, stats: structuredClone(stats), drawCalls: renderer?.info.render.calls, triangles: renderer?.info.render.triangles }; }
   }) });
 }
