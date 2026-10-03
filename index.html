@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#eeedf4">
+  <meta name="description" content="押して、なぞって、裏返して。音と立体感を楽しむプッシュポップ。">
+  <title>ぷち、ぽこ。 — プッシュポップ</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%23b9acd9'/%3E%3Ccircle cx='32' cy='32' r='21' fill='%23e4a1b3' stroke='%239f6480' stroke-width='3'/%3E%3Cellipse cx='26' cy='23' rx='8' ry='5' fill='%23f6c9d4'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="app">
+    <header class="topbar">
+      <div class="wordmark"><span class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><h1>ぷち、ぽこ。</h1></div>
+      <span class="top-note">ひといき、指あそび。</span>
+    </header>
+    <section class="play-area" aria-label="プッシュポップ">
+      <div class="play-top">
+        <div class="mode-switch" role="group" aria-label="あそびかた">
+          <button class="is-selected" data-mode="full" aria-pressed="true">じゆうに あそぶ</button>
+          <button data-mode="sample" aria-pressed="false">ためし押し</button>
+          <button data-mode="chase" aria-pressed="false">ひかりをおう</button>
+        </div>
+        <span class="face-label" id="face-label">おもて</span>
+      </div>
+      <div class="stage" id="stage">
+        <canvas id="toy" role="img" aria-label="立体のプッシュポップ。下の操作領域でもキーボードで押せます。"></canvas>
+        <div id="keys" class="key-grid" role="group" aria-label="突起のキーボード操作"></div>
+        <div class="loading" id="loading">おもちゃを じゅんびしています</div>
+        <div class="error-panel" id="error-panel" hidden><p>おもちゃを表示できませんでした。</p><p>ブラウザの設定でグラフィック描画を有効にして、もう一度開いてください。</p><button onclick="location.reload()">もういちど</button></div>
+      </div>
+      <div class="play-bottom">
+        <div class="instruction"><p id="hint">おして、なぞって。</p><span id="status" aria-live="polite">好きなところから、どうぞ。</span></div>
+        <button class="flip-button" id="flip" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 8a8 8 0 1 0 1 7M19 3v5h-5"/></svg>うらがえす</button>
+      </div>
+    </section>
+    <section class="sound-bar" aria-label="音の設定">
+      <div class="sound-group">
+        <button id="mute" class="sound-toggle" aria-pressed="false" aria-label="音を消す"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4ZM15 8a6 6 0 0 1 0 8M18 5a10 10 0 0 1 0 14"/></svg><span id="mute-label">おと</span></button>
+        <input id="volume" type="range" min="0" max="100" value="45" aria-label="音量">
+      </div>
+      <div class="tone-switch" role="group" aria-label="音色">
+        <button data-tone="soft" class="is-selected" aria-pressed="true">かるい ポコッ</button>
+        <button data-tone="deep" aria-pressed="false">ふかい ポコッ</button>
+      </div>
+    </section>
+    <footer><span id="audio-note">音は、最初にさわると鳴ります。</span><span class="keyboard-help">キーボードでも：矢印でえらぶ · スペースでおす</span></footer>
+  </main>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
