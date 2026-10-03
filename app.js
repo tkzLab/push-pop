@@ -24,7 +24,8 @@ function roundedRimGlow() {
   rimGlowTexture.needsUpdate = true;
   return rimGlowTexture;
 }
-const chase = { target: 0, progress: 0, completedFaces: 0, reveal: null };
+let repeatTargetLight = true;
+const chase = { target: 0, progress: 0, completedFaces: 0, reveal: null, lightStart:0 };
 const chaseSigns = Array(24).fill(1);
 const chaseMode = modes.chase; chaseMode.signs = chaseSigns;
 const initialMode = new URLSearchParams(location.search).get('play') === 'light' ? 'chase' : 'full';
@@ -118,11 +119,23 @@ function diffuseHaloTexture() {
   return haloTexture;
 }
 
+function startChaseLight() {
+  chase.lightStart = performance.now();
+  chase.reveal = chase.target === null ? null : { index:chase.target, start:chase.lightStart };
+}
+function gatherLight(cell, progress, repeating = false) {
+  const eased = progress * progress * (3 - 2 * progress);
+  cell.halo.visible = true;
+  cell.halo.scale.setScalar(1.22 - .22 * eased);
+  const arrival = repeating ? Math.min(1,progress / .16) : 1;
+  cell.halo.material.opacity = .68 * Math.pow(1 - eased,1.15) * arrival;
+  lightRim(cell, repeating ? .4 + .6 * eased : eased);
+}
 function chooseChaseTarget() {
   const remaining = chaseSigns.map((sign, index) => sign === modes.chase.side ? index : -1).filter(index => index >= 0);
   chase.target = remaining.length ? remaining[Math.floor(Math.random() * remaining.length)] : null;
   // A short arrival glow makes the new destination feel placed, not merely switched.
-  chase.reveal = chase.target === null ? null : { index: chase.target, start: performance.now() };
+  startChaseLight();
 }
 function lightRim(cell, progress) {
   // Keep lighting-dependent shading visible on the torus instead of clipping it to solid white.
@@ -379,7 +392,7 @@ document.querySelectorAll('[data-mode]').forEach(button => button.addEventListen
   cancelInputs(); flipAnimation = null;
   mode = button.dataset.mode;
   if (mode === 'chase' && chase.target !== null) {
-    chase.reveal = { index: chase.target, start: performance.now() };
+    startChaseLight();
   }
   document.querySelectorAll('[data-mode]').forEach(b => { const selected = b === button; b.classList.toggle('is-selected', selected); b.setAttribute('aria-pressed', selected); });
   $('flip').disabled = !chaseReadyToFlip(); buildToy();
@@ -437,20 +450,26 @@ function animate(now) {
     const elapsed = now - chase.reveal.start;
     const cell = cells[chase.reveal.index];
     if (cell && elapsed < 900) {
-      // A wide weak glow is gathered into the fixed rim, like a candle or fluorescent tube waking up.
       const progress = Math.max(0, Math.min(1, elapsed / 900));
-      // Keep the early phase deliberately weak, then let the rim settle into its full brightness.
-      const eased = progress * progress * (3 - 2 * progress);
-      cell.halo.visible = true;
-      cell.halo.scale.setScalar(1.22 - .22 * eased);
-      cell.halo.material.opacity = .68 * Math.pow(1 - eased, 1.15);
-      lightRim(cell, eased);
+      gatherLight(cell, progress);
       dirty = true; moving = true;
     } else if (cell) {
       cell.halo.visible = false; cell.halo.material.opacity = 0;
       lightRim(cell, 1);
       chase.reveal = null; dirty = true;
     }
+  }
+  if (mode === 'chase' && repeatTargetLight && chase.target !== null && !chase.reveal && !reducedMotion.matches && !flipAnimation) {
+    const cell = cells[chase.target];
+    const phase = Math.max(0,now-chase.lightStart) % 2000;
+    if (phase < 900) {
+      gatherLight(cell,phase/900,true);
+    } else {
+      cell.halo.visible = false; cell.halo.material.opacity = 0;
+      const fade = Math.max(0,Math.min(1,(phase-1200)/800));
+      lightRim(cell,1-.6*fade*fade*(3-2*fade));
+    }
+    dirty = true; moving = true;
   }
   if (flipAnimation) {
     const f = flipAnimation, t = Math.min(1, (now - f.start) / f.duration), eased = t * t * (3 - 2 * t);
@@ -502,7 +521,7 @@ try {
     button.classList.toggle('is-selected', selected); button.setAttribute('aria-pressed', selected);
   });
   buildToy(); $('loading').hidden = true; $('flip').disabled = !chaseReadyToFlip();
-  if (mode === 'chase' && chase.target !== null) chase.reveal = { index: chase.target, start: performance.now() };
+  if (mode === 'chase' && chase.target !== null) startChaseLight();
   new ResizeObserver(fitCamera).observe(stage);
   frame = requestAnimationFrame(animate);
 } catch (error) { console.error('Toy renderer unavailable:', error); alive = false; showError(); }
@@ -542,6 +561,6 @@ if (new URLSearchParams(location.search).has('qa')) {
         rimRadius: c.indicator.geometry.parameters.radius, rimZ: c.indicator.position.z
       })) };
     },
-    snapshot() { return { mode, side: modes[mode].side, flipping: Boolean(flipAnimation), activePointers: pointers.size, bounds: screenBounds(), cells: cells.map(c => ({ index: c.index, sign: c.sign, height: c.height, pressing: Boolean(c.pressing), ...screenPoint(c) })), game: mode === 'chase' ? { target: chase.target, progress: chase.progress, completedFaces: chase.completedFaces, reveal: chase.reveal && { index: chase.reveal.index, start: chase.reveal.start }, revealScale: chase.reveal ? cells[chase.reveal.index]?.indicator.scale.x : 1, revealOpacity: chase.reveal ? cells[chase.reveal.index]?.indicator.material.opacity : 1, revealIntensity: chase.reveal ? cells[chase.reveal.index]?.indicator.material.emissiveIntensity : rimLightIntensity, haloVisible: chase.reveal ? cells[chase.reveal.index]?.halo.visible : false, haloScale: chase.reveal ? cells[chase.reveal.index]?.halo.scale.x : 1, haloOpacity: chase.reveal ? cells[chase.reveal.index]?.halo.material.opacity : 0 } : null, audio: audio.diagnostics, stats: structuredClone(stats), drawCalls: renderer?.info.render.calls, triangles: renderer?.info.render.triangles }; }
+    snapshot() { return { mode, side: modes[mode].side, flipping: Boolean(flipAnimation), activePointers: pointers.size, bounds: screenBounds(), cells: cells.map(c => ({ index: c.index, sign: c.sign, height: c.height, pressing: Boolean(c.pressing), ...screenPoint(c) })), game: mode === 'chase' ? { target: chase.target, progress: chase.progress, completedFaces: chase.completedFaces, reveal: chase.reveal && { index: chase.reveal.index, start: chase.reveal.start }, revealScale: chase.target !== null ? cells[chase.target]?.indicator.scale.x : 1, revealOpacity: chase.target !== null ? cells[chase.target]?.indicator.material.opacity : 1, revealIntensity: chase.target !== null ? cells[chase.target]?.indicator.material.emissiveIntensity : rimLightIntensity, haloVisible: chase.target !== null ? cells[chase.target]?.halo.visible : false, haloScale: chase.target !== null ? cells[chase.target]?.halo.scale.x : 1, haloOpacity: chase.target !== null ? cells[chase.target]?.halo.material.opacity : 0 } : null, audio: audio.diagnostics, stats: structuredClone(stats), drawCalls: renderer?.info.render.calls, triangles: renderer?.info.render.triangles }; }
   }) });
 }

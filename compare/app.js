@@ -9,35 +9,6 @@ const modes = { full: { cols: 6, rows: 4, side: 1 }, sample: { cols: 2, rows: 2,
 const palette = ['#d987a9', '#eda875', '#e1c878', '#83bba9'];
 const rimLightColor = new THREE.Color('#fff2bb');
 const rimLightIntensity = .45;
-let comparisonVariant = 'current';
-let pulseStart = 0, pulseLevel = 1;
-const svgNS = 'http://www.w3.org/2000/svg';
-const fallingLight = document.createElementNS(svgNS, 'svg');
-fallingLight.setAttribute('aria-hidden', 'true');
-fallingLight.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;display:none;z-index:1;overflow:visible';
-fallingLight.innerHTML = '<defs><linearGradient id="rim-rain" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff2bb" stop-opacity="0"/><stop offset=".72" stop-color="#fff2bb" stop-opacity=".5"/><stop offset="1" stop-color="#fffcef" stop-opacity="1"/></linearGradient></defs>';
-const rainLines = Array.from({length:16}, () => {
-  const line = document.createElementNS(svgNS,'line');
-  line.setAttribute('stroke','url(#rim-rain)'); line.setAttribute('stroke-linecap','round');
-  fallingLight.append(line); return line;
-});
-stage.append(fallingLight);
-function drawRimRain(cell, progress) {
-  const rect = canvas.getBoundingClientRect(), point = screenPoint(cell);
-  const diameter = Math.abs(screenPoint({x:cell.x + .968,y:cell.y}).x - point.x);
-  const length = diameter * .33;
-  fallingLight.style.display = 'block';
-  fallingLight.style.opacity = String(Math.sin(Math.PI * progress));
-  for (let i=0;i<rainLines.length;i++) {
-    const angle=i/rainLines.length*Math.PI*2;
-    const end=screenPoint({x:cell.x + .484*Math.cos(angle),y:cell.y + .484*Math.sin(angle)});
-    const y=end.y-rect.top-length*.65*(1-progress);
-    const line=rainLines[i];
-    line.setAttribute('x1',end.x-rect.left);line.setAttribute('x2',end.x-rect.left+.01);
-    line.setAttribute('y1',y-length);line.setAttribute('y2',y);
-    line.setAttribute('stroke-width',Math.max(1.2,diameter*.025));
-  }
-}
 let rimGlowTexture;
 function roundedRimGlow() {
   if (rimGlowTexture) return rimGlowTexture;
@@ -53,7 +24,8 @@ function roundedRimGlow() {
   rimGlowTexture.needsUpdate = true;
   return rimGlowTexture;
 }
-const chase = { target: 0, progress: 0, completedFaces: 0, reveal: null };
+let repeatTargetLight = true;
+const chase = { target: 0, progress: 0, completedFaces: 0, reveal: null, lightStart:0 };
 const chaseSigns = Array(24).fill(1);
 const chaseMode = modes.chase; chaseMode.signs = chaseSigns;
 const initialMode = 'chase';
@@ -147,12 +119,23 @@ function diffuseHaloTexture() {
   return haloTexture;
 }
 
+function startChaseLight() {
+  chase.lightStart = performance.now();
+  chase.reveal = chase.target === null ? null : { index:chase.target, start:chase.lightStart };
+}
+function gatherLight(cell, progress, repeating = false) {
+  const eased = progress * progress * (3 - 2 * progress);
+  cell.halo.visible = true;
+  cell.halo.scale.setScalar(1.22 - .22 * eased);
+  const arrival = repeating ? Math.min(1,progress / .16) : 1;
+  cell.halo.material.opacity = .68 * Math.pow(1 - eased,1.15) * arrival;
+  lightRim(cell, repeating ? .4 + .6 * eased : eased);
+}
 function chooseChaseTarget() {
   const remaining = chaseSigns.map((sign, index) => sign === modes.chase.side ? index : -1).filter(index => index >= 0);
   chase.target = remaining.length ? remaining[Math.floor(Math.random() * remaining.length)] : null;
   // A short arrival glow makes the new destination feel placed, not merely switched.
-  chase.reveal = chase.target === null ? null : { index: chase.target, start: performance.now() };
-  pulseStart = performance.now() + 900;
+  startChaseLight();
 }
 function lightRim(cell, progress) {
   // Keep lighting-dependent shading visible on the torus instead of clipping it to solid white.
@@ -192,13 +175,6 @@ function buildToy() {
       bodyShape.holes.push(hole);
       const index = row * cols + col;
       const material = silicone(palette[mode === 'sample' ? index : row]);
-      const wave = { radius:{value:0}, strength:{value:0} };
-      material.onBeforeCompile = shader => {
-        shader.uniforms.waveRadius = wave.radius; shader.uniforms.waveStrength = wave.strength;
-        shader.vertexShader = 'varying vec2 popSurface;\n' + shader.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\npopSurface = position.xy;');
-        shader.fragmentShader = 'varying vec2 popSurface; uniform float waveRadius; uniform float waveStrength;\n' + shader.fragmentShader.replace('#include <emissivemap_fragment>','#include <emissivemap_fragment>\nfloat wave = exp(-pow((length(popSurface)-waveRadius)/0.065,2.0))*waveStrength;\ntotalEmissiveRadiance += vec3(1.0,0.82,0.48)*wave;');
-      };
-      material.customProgramCacheKey = () => 'pop-spread-v1';
       const membrane = new THREE.Mesh(membraneGeometry(), material);
       // Lighting still shades the curved surface; avoid self-shadow artifacts on the reverse face.
       membrane.position.set(x, y, 0); membrane.castShadow = true; membrane.receiveShadow = false;
@@ -222,7 +198,7 @@ function buildToy() {
       const halo = new THREE.Mesh(new THREE.PlaneGeometry(1.64, 1.64), new THREE.MeshBasicMaterial({ map: diffuseHaloTexture(), color: '#fff0a8', transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
       halo.position.set(x, y, .205 * state.side); halo.visible = false;
       toy.add(halo);
-      const cell = { index, x, y, wave, mesh: membrane, target, rims, indicator, halo, sign: state.signs[index], height: .43 * state.signs[index], velocity: 0, pressing: null };
+      const cell = { index, x, y, mesh: membrane, target, rims, indicator, halo, sign: state.signs[index], height: .43 * state.signs[index], velocity: 0, pressing: null };
       cells.push(cell); updateMembrane(cell);
     }
   }
@@ -306,9 +282,7 @@ function updateStatus() {
       if (target) {
         lightRim(c, revealing ? 0 : 1);
       }
-      c.wave.strength.value = 0;
-      c.halo.visible = revealing && ['current','pulse'].includes(comparisonVariant);
-      c.halo.material.color.set('#fff0a8');
+      c.halo.visible = revealing;
       c.halo.position.z = .205 * state.side;
       c.halo.scale.setScalar(revealing ? 1.22 : 1);
       c.halo.material.opacity = revealing ? .68 : 0;
@@ -418,7 +392,7 @@ document.querySelectorAll('[data-mode]').forEach(button => button.addEventListen
   cancelInputs(); flipAnimation = null;
   mode = button.dataset.mode;
   if (mode === 'chase' && chase.target !== null) {
-    chase.reveal = { index: chase.target, start: performance.now() };
+    startChaseLight();
   }
   document.querySelectorAll('[data-mode]').forEach(b => { const selected = b === button; b.classList.toggle('is-selected', selected); b.setAttribute('aria-pressed', selected); });
   $('flip').disabled = !chaseReadyToFlip(); buildToy();
@@ -476,34 +450,26 @@ function animate(now) {
     const elapsed = now - chase.reveal.start;
     const cell = cells[chase.reveal.index];
     if (cell && elapsed < 900) {
-      // A wide weak glow is gathered into the fixed rim, like a candle or fluorescent tube waking up.
       const progress = Math.max(0, Math.min(1, elapsed / 900));
-      // Keep the early phase deliberately weak, then let the rim settle into its full brightness.
-      const eased = progress * progress * (3 - 2 * progress);
-      cell.halo.visible = ['current','pulse'].includes(comparisonVariant);
-      cell.halo.scale.setScalar(1.22 - .22 * eased);
-      cell.halo.material.opacity = .68 * Math.pow(1 - eased, 1.15);
-      let rimProgress = eased;
-      if (comparisonVariant === 'spread') {
-        cell.wave.radius.value = .47 * Math.min(1,progress/.8);
-        cell.wave.strength.value = .9 * Math.sin(Math.PI * progress);
-        const arrival = Math.max(0,(progress-.45)/.55);
-        rimProgress = arrival * arrival * (3-2*arrival);
-      }
-      lightRim(cell, rimProgress);
-      if (comparisonVariant === 'rimfall') drawRimRain(cell, progress);
+      gatherLight(cell, progress);
       dirty = true; moving = true;
     } else if (cell) {
-      cell.halo.visible = false; cell.halo.material.opacity = 0; cell.wave.strength.value = 0; cell.wave.radius.value = 0;
+      cell.halo.visible = false; cell.halo.material.opacity = 0;
       lightRim(cell, 1);
       chase.reveal = null; dirty = true;
     }
   }
-  if (!chase.reveal || comparisonVariant !== 'rimfall' || reducedMotion.matches || mode !== 'chase') fallingLight.style.display = 'none';
-  if (mode === 'chase' && comparisonVariant === 'pulse' && chase.target !== null && !chase.reveal && !flipAnimation) {
-    pulseLevel = reducedMotion.matches ? 1 : .7 + .3 * Math.cos((now-pulseStart)/2000*Math.PI*2);
-    lightRim(cells[chase.target], pulseLevel);
-    if (!reducedMotion.matches) { dirty = true; moving = true; }
+  if (mode === 'chase' && repeatTargetLight && chase.target !== null && !chase.reveal && !reducedMotion.matches && !flipAnimation) {
+    const cell = cells[chase.target];
+    const phase = Math.max(0,now-chase.lightStart) % 2000;
+    if (phase < 900) {
+      gatherLight(cell,phase/900,true);
+    } else {
+      cell.halo.visible = false; cell.halo.material.opacity = 0;
+      const fade = Math.max(0,Math.min(1,(phase-1200)/800));
+      lightRim(cell,1-.6*fade*fade*(3-2*fade));
+    }
+    dirty = true; moving = true;
   }
   if (flipAnimation) {
     const f = flipAnimation, t = Math.min(1, (now - f.start) / f.duration), eased = t * t * (3 - 2 * t);
@@ -555,38 +521,13 @@ try {
     button.classList.toggle('is-selected', selected); button.setAttribute('aria-pressed', selected);
   });
   buildToy(); $('loading').hidden = true; $('flip').disabled = !chaseReadyToFlip();
-  if (mode === 'chase' && chase.target !== null) chase.reveal = { index: chase.target, start: performance.now() };
+  if (mode === 'chase' && chase.target !== null) startChaseLight();
   new ResizeObserver(fitCamera).observe(stage);
   frame = requestAnimationFrame(animate);
 } catch (error) { console.error('Toy renderer unavailable:', error); alive = false; showError(); }
 canvas.addEventListener('webglcontextlost', event => { event.preventDefault(); alive = false; cancelAnimationFrame(frame); cancelInputs(); showError(); });
 window.addEventListener('pagehide', () => { cancelInputs(); audio.dispose(); });
 window.addEventListener('pageshow', event => { if (event.persisted) location.reload(); });
-
-// Local-only comparison controls. Each selection resets the same column for a fair comparison.
-window.__lightCompare = Object.freeze({
-  set({variant = 'current',row = 0,side = 1} = {}) {
-    if (!['current','spread','rimfall','pulse'].includes(variant) || !Number.isInteger(row) || row < 0 || row > 3 || ![1,-1].includes(side)) return;
-    cancelInputs(); flipAnimation = null; mode = 'chase'; comparisonVariant = variant;
-    modes.chase.side = side; chaseSigns.fill(side); chase.progress = 0; chase.completedFaces = 0;
-    chase.target = row * 6 + 2; chase.reveal = {index:chase.target,start:performance.now()};
-    pulseStart = performance.now()+900; pulseLevel = 1;
-    fallingLight.style.display = 'none'; buildToy();
-  },
-  replay() {
-    if (chase.target === null) return;
-    chase.reveal = {index:chase.target,start:performance.now()}; pulseStart=performance.now()+900; updateStatus(); dirty = true;
-  },
-  snapshot() {
-    const cell = cells[chase.target];
-    return {variant:comparisonVariant,target:chase.target,side:modes.chase.side,progress:chase.progress,
-      revealing:Boolean(chase.reveal),intensity:cell?.indicator.material.emissiveIntensity,
-      rimColor:cell?.indicator.material.color.getHexString(),beamVisible:fallingLight.style.display!=='none',
-      waveRadius:cell?.wave.radius.value,waveStrength:cell?.wave.strength.value,pulseLevel,height:cell?.height};
-  }
-});
-window.__lightCompare.set();
-window.dispatchEvent(new Event('lightcompare-ready'));
 
 // Read-only diagnostics are exposed only in an explicitly requested QA session.
 if (new URLSearchParams(location.search).has('qa')) {
@@ -620,6 +561,18 @@ if (new URLSearchParams(location.search).has('qa')) {
         rimRadius: c.indicator.geometry.parameters.radius, rimZ: c.indicator.position.z
       })) };
     },
-    snapshot() { return { mode, side: modes[mode].side, flipping: Boolean(flipAnimation), activePointers: pointers.size, bounds: screenBounds(), cells: cells.map(c => ({ index: c.index, sign: c.sign, height: c.height, pressing: Boolean(c.pressing), ...screenPoint(c) })), game: mode === 'chase' ? { target: chase.target, progress: chase.progress, completedFaces: chase.completedFaces, reveal: chase.reveal && { index: chase.reveal.index, start: chase.reveal.start }, revealScale: chase.reveal ? cells[chase.reveal.index]?.indicator.scale.x : 1, revealOpacity: chase.reveal ? cells[chase.reveal.index]?.indicator.material.opacity : 1, revealIntensity: chase.reveal ? cells[chase.reveal.index]?.indicator.material.emissiveIntensity : rimLightIntensity, haloVisible: chase.reveal ? cells[chase.reveal.index]?.halo.visible : false, haloScale: chase.reveal ? cells[chase.reveal.index]?.halo.scale.x : 1, haloOpacity: chase.reveal ? cells[chase.reveal.index]?.halo.material.opacity : 0 } : null, audio: audio.diagnostics, stats: structuredClone(stats), drawCalls: renderer?.info.render.calls, triangles: renderer?.info.render.triangles }; }
+    snapshot() { return { mode, side: modes[mode].side, flipping: Boolean(flipAnimation), activePointers: pointers.size, bounds: screenBounds(), cells: cells.map(c => ({ index: c.index, sign: c.sign, height: c.height, pressing: Boolean(c.pressing), ...screenPoint(c) })), game: mode === 'chase' ? { target: chase.target, progress: chase.progress, completedFaces: chase.completedFaces, reveal: chase.reveal && { index: chase.reveal.index, start: chase.reveal.start }, revealScale: chase.target !== null ? cells[chase.target]?.indicator.scale.x : 1, revealOpacity: chase.target !== null ? cells[chase.target]?.indicator.material.opacity : 1, revealIntensity: chase.target !== null ? cells[chase.target]?.indicator.material.emissiveIntensity : rimLightIntensity, haloVisible: chase.target !== null ? cells[chase.target]?.halo.visible : false, haloScale: chase.target !== null ? cells[chase.target]?.halo.scale.x : 1, haloOpacity: chase.target !== null ? cells[chase.target]?.halo.material.opacity : 0 } : null, audio: audio.diagnostics, stats: structuredClone(stats), drawCalls: renderer?.info.render.calls, triangles: renderer?.info.render.triangles }; }
   }) });
 }
+
+window.__lightCompare = Object.freeze({
+  set({variant='pulse',row=0,side=1}={}) {
+    if (!['current','pulse'].includes(variant)||!Number.isInteger(row)||row<0||row>3||![1,-1].includes(side)) return;
+    cancelInputs();flipAnimation=null;mode='chase';repeatTargetLight=variant==='pulse';
+    modes.chase.side=side;chaseSigns.fill(side);chase.progress=0;chase.completedFaces=0;chase.target=row*6+2;
+    startChaseLight();buildToy();
+  },
+  replay() {startChaseLight();updateStatus();dirty=true;},
+  snapshot() { const c=cells[chase.target]; return {variant:repeatTargetLight?'pulse':'current',target:chase.target,side:modes.chase.side,progress:chase.progress,haloVisible:c?.halo.visible,haloScale:c?.halo.scale.x,intensity:c?.indicator.material.emissiveIntensity};}
+});
+window.__lightCompare.set();window.dispatchEvent(new Event('lightcompare-ready'));
